@@ -4,7 +4,9 @@
 
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+   `Run install.bat (for Windows)`
+   `Run install.sh (for Linux)`
+2. For linux:
+   `chmod +x install.sh (Make it executable)`
+2. Run the app:
    `npm run dev`
