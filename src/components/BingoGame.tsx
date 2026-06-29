@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Check, Volume2, VolumeX, LogOut, RotateCcw, Award, ShieldAlert, WifiOff, MessageSquare } from "lucide-react";
+import { Check, Volume2, VolumeX, LogOut, RotateCcw, Award, ShieldAlert, WifiOff, MessageSquare, Cpu } from "lucide-react";
 import { playClickSound, playMarkSound, playLineCompleteSound, playWinnerSound } from "../utils/audio";
 import { Player, Room, GameEvent } from "../types";
 
@@ -318,7 +318,7 @@ export default function BingoGame({
                     <div className="flex items-center gap-2.5">
                       <div className="relative">
                         <div className="w-8 h-8 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center font-bold text-xs">
-                          {player.name.charAt(0).toUpperCase()}
+                          {player.isBot ? <Cpu className="w-4 h-4 text-slate-500" /> : player.name.charAt(0).toUpperCase()}
                         </div>
                         <span
                           className={`absolute -bottom-0.5 -right-0.5 block h-2 w-2 rounded-full ring-2 ring-white ${
@@ -330,6 +330,7 @@ export default function BingoGame({
                         <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
                           {player.name}
                           {isMe && <span className="text-[9px] bg-slate-200/60 px-1 rounded">You</span>}
+                          {player.isBot && <span className="text-[9px] text-violet-600 bg-violet-100 px-1 rounded">BOT</span>}
                         </span>
                         <div className="flex gap-0.5 text-[10px] tracking-wider text-emerald-600 font-bold">
                           {Array.from({ length: Math.min(5, player.completedLines) }).map((_, idx) => (

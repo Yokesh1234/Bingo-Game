@@ -1,11 +1,11 @@
 import { useState, FormEvent } from "react";
 import { motion } from "motion/react";
-import { Play, Plus, ArrowRight, User, Hash } from "lucide-react";
+import { Play, Plus, ArrowRight, User, Hash, Users, Cpu } from "lucide-react";
 import { playClickSound } from "../utils/audio";
 
 interface LobbyProps {
   onJoin: (roomCode: string, name: string) => void;
-  onCreate: (name: string) => void;
+  onCreate: (name: string, isBotGame?: boolean) => void;
   defaultName: string;
 }
 
@@ -14,7 +14,7 @@ export default function Lobby({ onJoin, onCreate, defaultName }: LobbyProps) {
   const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState("");
 
-  const handleCreate = (e: FormEvent) => {
+  const handleCreate = (e: FormEvent, isBotGame: boolean = false) => {
     e.preventDefault();
     if (!name.trim()) {
       setError("Please enter your name first!");
@@ -22,7 +22,7 @@ export default function Lobby({ onJoin, onCreate, defaultName }: LobbyProps) {
     }
     setError("");
     playClickSound();
-    onCreate(name.trim());
+    onCreate(name.trim(), isBotGame);
   };
 
   const handleJoin = (e: FormEvent) => {
@@ -97,14 +97,22 @@ export default function Lobby({ onJoin, onCreate, defaultName }: LobbyProps) {
         {/* Divider & Action modes */}
         <div className="grid grid-cols-1 gap-6 pt-2">
           {/* Create Room Block */}
-          <div className="p-1">
+          <div className="grid grid-cols-2 gap-3 p-1">
             <button
               id="create_room_btn"
-              onClick={handleCreate}
-              className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-white font-semibold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all text-sm"
+              onClick={(e) => handleCreate(e, false)}
+              className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-white font-semibold rounded-xl flex flex-col items-center justify-center gap-1 shadow-lg shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all text-sm"
             >
-              <Plus className="h-4 w-4" />
-              Create New Room
+              <Users className="h-5 w-5 mb-1" />
+              Play with Friends
+            </button>
+            <button
+              id="create_bot_room_btn"
+              onClick={(e) => handleCreate(e, true)}
+              className="w-full py-3.5 px-4 bg-violet-500 hover:bg-violet-600 active:scale-[0.98] text-white font-semibold rounded-xl flex flex-col items-center justify-center gap-1 shadow-lg shadow-violet-500/10 hover:shadow-violet-500/20 transition-all text-sm"
+            >
+              <Cpu className="h-5 w-5 mb-1" />
+              Play vs PC
             </button>
           </div>
 

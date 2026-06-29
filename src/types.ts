@@ -6,6 +6,7 @@ export interface Player {
   ready: boolean;      // True when they have submitted their 5x5 board
   completedLines: number;
   isOnline: boolean;
+  isBot?: boolean;     // Whether the player is an automated bot
 }
 
 export type GameState = 'BOARD_CREATION' | 'PLAYING' | 'FINISHED';
@@ -17,6 +18,7 @@ export interface Room {
   markedNumbers: number[]; // Ordered list of marked numbers
   turnIndex: number;       // Index of the player whose turn it is
   winners: string[];       // Array of player IDs who won
+  isBotGame?: boolean;     // True if playing against PC
 }
 
 export interface ClientRoomState extends Omit<Room, 'players'> {

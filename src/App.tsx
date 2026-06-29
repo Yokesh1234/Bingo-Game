@@ -93,12 +93,12 @@ export default function App() {
   }, [playerId]);
 
   // Handle room creation
-  const handleCreateRoom = (name: string) => {
+  const handleCreateRoom = (name: string, isBotGame?: boolean) => {
     if (!socket) return;
     setPlayerName(name);
     localStorage.setItem("bingo_player_name", name);
     setLogs([]);
-    socket.emit("join_room", { roomCode: "", name, playerId });
+    socket.emit("join_room", { roomCode: "", name, playerId, isBotGame });
   };
 
   // Handle joining an existing room

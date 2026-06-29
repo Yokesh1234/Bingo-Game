@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Trash2, Sparkles, Check, Users, Loader } from "lucide-react";
+import { Trash2, Sparkles, Check, Users, Loader, Cpu } from "lucide-react";
 import { playClickSound, playReadySound } from "../utils/audio";
 import { Player } from "../types";
 
@@ -279,7 +279,7 @@ export default function BoardCreation({
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <div className="w-10 h-10 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center font-bold text-sm">
-                      {player.name.charAt(0).toUpperCase()}
+                      {player.isBot ? <Cpu className="w-5 h-5 text-slate-500" /> : player.name.charAt(0).toUpperCase()}
                     </div>
                     {/* Online status indicator */}
                     <span
@@ -296,9 +296,14 @@ export default function BoardCreation({
                           You
                         </span>
                       )}
+                      {player.isBot && (
+                        <span className="text-[10px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">
+                          BOT
+                        </span>
+                      )}
                     </span>
                     <span className="text-xs text-slate-400 block">
-                      {player.isOnline ? "Online" : "Offline / Disconnected"}
+                      {player.isBot ? "Ready to play" : (player.isOnline ? "Online" : "Offline / Disconnected")}
                     </span>
                   </div>
                 </div>

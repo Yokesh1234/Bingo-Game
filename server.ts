@@ -87,17 +87,126 @@ function validateBoard(board: number[][]): boolean {
   return numbers.size === 25;
 }
 
+function generateRandomBoard(): number[][] {
+  const numbers = Array.from({ length: 25 }, (_, i) => i + 1);
+  for (let i = numbers.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
+  }
+  const board: number[][] = [];
+  for (let i = 0; i < 5; i++) {
+    board.push(numbers.slice(i * 5, i * 5 + 5));
+  }
+  return board;
+}
+
 // Prune inactive/empty rooms (rooms with all players offline for over 15 minutes)
 function pruneRooms() {
-  const now = Date.now();
   Object.keys(rooms).forEach((code) => {
     const room = rooms[code];
-    const anyActive = room.players.some((p) => p.isOnline);
+    const anyActive = room.players.some((p) => p.isOnline && !p.isBot);
     if (!anyActive) {
       // If room is empty or everyone is offline, remove it
       delete rooms[code];
     }
   });
+}
+
+function handleSelectNumberLogic(roomCode: string, playerId: string, number: number, io: Server, socket?: Socket) {
+  const room = rooms[roomCode];
+  if (!room || room.gameState !== "PLAYING") return;
+
+  const activePlayer = room.players[room.turnIndex];
+  if (!activePlayer || activePlayer.id !== playerId) {
+    if (socket) socket.emit("error_msg", "It's not your turn!");
+    return;
+  }
+
+  if (number < 1 || number > 25 || room.markedNumbers.includes(number)) {
+    if (socket) socket.emit("error_msg", "Invalid number choice.");
+    return;
+  }
+
+  // Record selected number
+  room.markedNumbers.push(number);
+
+  // Recalculate line scores for all players
+  const markedSet = new Set(room.markedNumbers);
+  room.players.forEach((p) => {
+    p.completedLines = calculateCompletedLines(p.board, markedSet);
+  });
+
+  io.to(roomCode).emit("game_log", {
+    text: `${activePlayer.name} selected ${number}`,
+    type: "select",
+    number,
+  });
+
+  // Check if any player completed 5 lines
+  const winners = room.players.filter((p) => p.completedLines >= 5);
+
+  if (winners.length > 0) {
+    room.gameState = "FINISHED";
+    room.winners = winners.map((w) => w.id);
+
+    const winnerNames = winners.map((w) => w.name).join(" and ");
+    io.to(roomCode).emit("game_log", {
+      text: `🎉 BINGO! Winner: ${winnerNames}`,
+      type: "win",
+    });
+  } else {
+    // Rotate turn to next online player
+    let nextTurnIndex = (room.turnIndex + 1) % room.players.length;
+    let found = false;
+
+    for (let i = 0; i < room.players.length; i++) {
+      if (room.players[nextTurnIndex].isOnline) {
+        room.turnIndex = nextTurnIndex;
+        found = true;
+        break;
+      }
+      nextTurnIndex = (nextTurnIndex + 1) % room.players.length;
+    }
+
+    if (!found) {
+      room.turnIndex = 0;
+    }
+  }
+
+  broadcastRoomState(roomCode, io);
+
+  // Check if it's a bot's turn next
+  if (room.gameState === "PLAYING") {
+    const nextPlayer = room.players[room.turnIndex];
+    if (nextPlayer && nextPlayer.isBot) {
+      triggerBotTurn(roomCode, io);
+    }
+  }
+}
+
+function triggerBotTurn(roomCode: string, io: Server) {
+  setTimeout(() => {
+    const room = rooms[roomCode];
+    if (!room || room.gameState !== "PLAYING") return;
+
+    const activePlayer = room.players[room.turnIndex];
+    if (!activePlayer || !activePlayer.isBot) return;
+
+    const unmarked: number[] = [];
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        const num = activePlayer.board[r][c];
+        if (!room.markedNumbers.includes(num)) {
+          unmarked.push(num);
+        }
+      }
+    }
+
+    if (unmarked.length > 0) {
+      const pick = unmarked[Math.floor(Math.random() * unmarked.length)];
+      handleSelectNumberLogic(roomCode, activePlayer.id, pick, io);
+    }
+  }, 1500); // Slight delay so human can see what happened
 }
 
 // Broadcast game state to everyone in the room individually to hide other players' boards
@@ -158,7 +267,7 @@ async function startServer() {
     pruneRooms();
 
     // Join / Create Room
-    socket.on("join_room", ({ roomCode, name, playerId }: { roomCode: string; name: string; playerId: string }) => {
+    socket.on("join_room", ({ roomCode, name, playerId, isBotGame }: { roomCode: string; name: string; playerId: string; isBotGame?: boolean }) => {
       let code = roomCode?.trim().toUpperCase();
       const isCreate = !code;
 
@@ -175,6 +284,7 @@ async function startServer() {
           markedNumbers: [],
           turnIndex: 0,
           winners: [],
+          isBotGame: !!isBotGame,
         };
       }
 
@@ -217,6 +327,21 @@ async function startServer() {
           isOnline: true,
         };
         room.players.push(player);
+
+        // If it's a new room and isBotGame is true, add the bot player immediately
+        if (isCreate && room.isBotGame) {
+          const botPlayer: Player = {
+            id: `bot_${Math.random().toString(36).substring(2, 9)}`,
+            socketId: "", // Bots don't have socket connection
+            name: "PC Bot",
+            board: generateRandomBoard(),
+            ready: true,
+            completedLines: 0,
+            isOnline: true,
+            isBot: true,
+          };
+          room.players.push(botPlayer);
+        }
       }
 
       currentRoomCode = code;
@@ -231,6 +356,13 @@ async function startServer() {
         text: `${player.name} joined the room.`,
         type: "system",
       });
+      
+      if (isCreate && room.isBotGame) {
+        io.to(code).emit("game_log", {
+          text: `PC Bot has joined and is ready!`,
+          type: "system",
+        });
+      }
     });
 
     // Board Submitted by Player
@@ -280,6 +412,12 @@ async function startServer() {
         if (activeIdx !== -1) {
           room.turnIndex = activeIdx;
         }
+
+        // Trigger bot if it's bot's turn first
+        const firstPlayer = room.players[room.turnIndex];
+        if (firstPlayer && firstPlayer.isBot) {
+          triggerBotTurn(currentRoomCode, io);
+        }
       }
 
       broadcastRoomState(currentRoomCode, io);
@@ -288,69 +426,7 @@ async function startServer() {
     // Active Player Selects a Number
     socket.on("select_number", ({ number }: { number: number }) => {
       if (!currentRoomCode || !currentPlayerId) return;
-
-      const room = rooms[currentRoomCode];
-      if (!room || room.gameState !== "PLAYING") return;
-
-      const activePlayer = room.players[room.turnIndex];
-      if (!activePlayer || activePlayer.id !== currentPlayerId) {
-        socket.emit("error_msg", "It's not your turn!");
-        return;
-      }
-
-      if (number < 1 || number > 25 || room.markedNumbers.includes(number)) {
-        socket.emit("error_msg", "Invalid number choice.");
-        return;
-      }
-
-      // Record selected number
-      room.markedNumbers.push(number);
-
-      // Recalculate line scores for all players (including offline ones so we are consistent)
-      const markedSet = new Set(room.markedNumbers);
-      room.players.forEach((p) => {
-        p.completedLines = calculateCompletedLines(p.board, markedSet);
-      });
-
-      io.to(currentRoomCode).emit("game_log", {
-        text: `${activePlayer.name} selected ${number}`,
-        type: "select",
-        number,
-      });
-
-      // Check if any player completed 5 lines
-      const winners = room.players.filter((p) => p.completedLines >= 5);
-
-      if (winners.length > 0) {
-        room.gameState = "FINISHED";
-        room.winners = winners.map((w) => w.id);
-
-        const winnerNames = winners.map((w) => w.name).join(" and ");
-        io.to(currentRoomCode).emit("game_log", {
-          text: `🎉 BINGO! Winner: ${winnerNames}`,
-          type: "win",
-        });
-      } else {
-        // Rotate turn to next online player
-        let nextTurnIndex = (room.turnIndex + 1) % room.players.length;
-        let found = false;
-
-        for (let i = 0; i < room.players.length; i++) {
-          if (room.players[nextTurnIndex].isOnline) {
-            room.turnIndex = nextTurnIndex;
-            found = true;
-            break;
-          }
-          nextTurnIndex = (nextTurnIndex + 1) % room.players.length;
-        }
-
-        if (!found) {
-          // Fallback if no online players are found
-          room.turnIndex = 0;
-        }
-      }
-
-      broadcastRoomState(currentRoomCode, io);
+      handleSelectNumberLogic(currentRoomCode, currentPlayerId, number, io, socket);
     });
 
     // Restart game / Play Again
@@ -366,9 +442,15 @@ async function startServer() {
       room.winners = [];
       room.turnIndex = 0;
       room.players.forEach((p) => {
-        p.ready = false;
-        p.completedLines = 0;
-        p.board = Array(5).fill(null).map(() => Array(5).fill(0)); // empty board for fresh layout
+        if (p.isBot) {
+          p.ready = true;
+          p.completedLines = 0;
+          p.board = generateRandomBoard();
+        } else {
+          p.ready = false;
+          p.completedLines = 0;
+          p.board = Array(5).fill(null).map(() => Array(5).fill(0)); // empty board for fresh layout
+        }
       });
 
       io.to(currentRoomCode).emit("game_log", {
