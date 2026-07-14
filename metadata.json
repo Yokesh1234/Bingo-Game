@@ -1,0 +1,6 @@
+{
+  "name": "1-25 Bingo",
+  "description": "A real-time multiplayer web version of the classic 1–25 Indian Bingo game with customizable boards, server-authoritative turns, and automatic win detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
