@@ -3,10 +3,11 @@ import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { Player, Room, GameState } from "./src/types.js";
+import { Player, Room, GameState, DotsRoom } from "./src/types.js";
 
 // Keep track of rooms in memory
 const rooms: Record<string, Room> = {};
+const dotsRooms: Record<string, DotsRoom> = {};
 
 // Helper to generate a room code
 function generateRoomCode(): string {
@@ -106,10 +107,22 @@ function pruneRooms() {
     const room = rooms[code];
     const anyActive = room.players.some((p) => p.isOnline && !p.isBot);
     if (!anyActive) {
-      // If room is empty or everyone is offline, remove it
       delete rooms[code];
     }
   });
+  Object.keys(dotsRooms).forEach((code) => {
+    const room = dotsRooms[code];
+    const anyActive = room.players.some((p) => p.isOnline);
+    if (!anyActive) {
+      delete dotsRooms[code];
+    }
+  });
+}
+
+function broadcastDotsRoomState(roomCode: string, io: Server) {
+  const room = dotsRooms[roomCode];
+  if (!room) return;
+  io.to(roomCode).emit("dots_room_state", room);
 }
 
 function handleSelectNumberLogic(roomCode: string, playerId: string, number: number, io: Server, socket?: Socket) {
@@ -541,6 +554,197 @@ async function startServer() {
         }
 
         broadcastRoomState(currentRoomCode, io);
+      }
+    });
+
+    // DOTS AND BOXES HANDLERS
+    let currentDotsRoomCode: string | null = null;
+    let currentDotsPlayerId: string | null = null;
+
+    socket.on("join_dots_room", ({ roomCode, name, playerId, rows = 5, cols = 5 }: { roomCode: string; name: string; playerId: string; rows?: number; cols?: number; }) => {
+      let code = roomCode?.trim().toUpperCase();
+      const isCreate = !code;
+
+      if (isCreate) {
+        do {
+          code = generateRoomCode();
+        } while (dotsRooms[code]);
+
+        dotsRooms[code] = {
+          code,
+          players: [],
+          gameState: 'WAITING',
+          lines: [],
+          boxes: [],
+          turnIndex: 0,
+          winner: null,
+          rows,
+          cols
+        };
+      }
+
+      const room = dotsRooms[code];
+      if (!room) {
+        socket.emit("error_msg", "Room not found or has expired.");
+        return;
+      }
+
+      let player = room.players.find((p) => p.id === playerId);
+      if (player) {
+        player.isOnline = true;
+        player.socketId = socket.id;
+        player.name = name;
+      } else {
+        if (room.players.length >= 2) {
+          socket.emit("error_msg", "Room is already full.");
+          return;
+        }
+        player = {
+          id: playerId,
+          socketId: socket.id,
+          name,
+          isOnline: true,
+          score: 0
+        };
+        room.players.push(player);
+      }
+
+      currentDotsRoomCode = code;
+      currentDotsPlayerId = playerId;
+      socket.join(code);
+
+      if (room.players.length === 2 && room.gameState === 'WAITING') {
+        room.gameState = 'PLAYING';
+      }
+
+      broadcastDotsRoomState(code, io);
+    });
+
+    socket.on("submit_dots_line", ({ r, c, type }: { r: number, c: number, type: 'h'|'v' }) => {
+      if (!currentDotsRoomCode || !currentDotsPlayerId) return;
+      const room = dotsRooms[currentDotsRoomCode];
+      if (!room || room.gameState !== 'PLAYING') return;
+
+      const activePlayer = room.players[room.turnIndex];
+      if (!activePlayer || activePlayer.id !== currentDotsPlayerId) return;
+
+      // Check if line exists
+      const exists = room.lines.some(l => l.r === r && l.c === c && l.type === type);
+      if (exists) return;
+
+      const owner = room.turnIndex === 0 ? 'player1' : 'player2';
+      room.lines.push({ r, c, type, owner });
+
+      // Check boxes
+      let boxesCompleted = 0;
+      const checkAndCompleteBox = (boxR: number, boxC: number) => {
+        if (boxR < 0 || boxR >= room.rows || boxC < 0 || boxC >= room.cols) return 0;
+        
+        const hasTop = room.lines.some(l => l.r === boxR && l.c === boxC && l.type === 'h');
+        const hasBottom = room.lines.some(l => l.r === boxR + 1 && l.c === boxC && l.type === 'h');
+        const hasLeft = room.lines.some(l => l.r === boxR && l.c === boxC && l.type === 'v');
+        const hasRight = room.lines.some(l => l.r === boxR && l.c === boxC + 1 && l.type === 'v');
+
+        if (hasTop && hasBottom && hasLeft && hasRight) {
+          // ensure not already claimed
+          if (!room.boxes.some(b => b.r === boxR && b.c === boxC)) {
+            room.boxes.push({ r: boxR, c: boxC, owner });
+            return 1;
+          }
+        }
+        return 0;
+      };
+
+      if (type === 'h') {
+        boxesCompleted += checkAndCompleteBox(r - 1, c);
+        boxesCompleted += checkAndCompleteBox(r, c);
+      } else {
+        boxesCompleted += checkAndCompleteBox(r, c - 1);
+        boxesCompleted += checkAndCompleteBox(r, c);
+      }
+
+      if (boxesCompleted > 0) {
+        activePlayer.score += boxesCompleted;
+        // Check win
+        const totalBoxes = room.rows * room.cols;
+        if (room.boxes.length >= totalBoxes) {
+          room.gameState = 'FINISHED';
+          const p1Score = room.players[0].score;
+          const p2Score = room.players[1].score;
+          if (p1Score > p2Score) room.winner = room.players[0].id;
+          else if (p2Score > p1Score) room.winner = room.players[1].id;
+          else room.winner = 'draw';
+        }
+      } else {
+        // Switch turn
+        room.turnIndex = room.turnIndex === 0 ? 1 : 0;
+      }
+
+      broadcastDotsRoomState(currentDotsRoomCode, io);
+    });
+
+    socket.on("restart_dots_room", () => {
+      if (!currentDotsRoomCode) return;
+      const room = dotsRooms[currentDotsRoomCode];
+      if (room) {
+        room.lines = [];
+        room.boxes = [];
+        room.gameState = room.players.length === 2 ? 'PLAYING' : 'WAITING';
+        room.turnIndex = 0;
+        room.winner = null;
+        room.players.forEach(p => p.score = 0);
+        broadcastDotsRoomState(currentDotsRoomCode, io);
+      }
+    });
+
+    socket.on("leave_dots_room", () => {
+      if (currentDotsRoomCode && currentDotsPlayerId) {
+        const room = dotsRooms[currentDotsRoomCode];
+        if (room) {
+          room.players = room.players.filter((p) => p.id !== currentDotsPlayerId);
+          if (room.players.length === 0) {
+            delete dotsRooms[currentDotsRoomCode];
+          } else {
+            if (room.gameState === 'PLAYING') {
+              room.gameState = 'FINISHED';
+              room.winner = room.players[0].id; // other player wins by default
+            }
+            broadcastDotsRoomState(currentDotsRoomCode, io);
+          }
+        }
+        socket.leave(currentDotsRoomCode);
+        currentDotsRoomCode = null;
+        currentDotsPlayerId = null;
+      }
+    });
+
+    socket.on("disconnect", () => {
+      // Disconnect Bingo
+      if (currentRoomCode && currentPlayerId) {
+        const room = rooms[currentRoomCode];
+        if (room) {
+          const player = room.players.find((p) => p.id === currentPlayerId);
+          if (player) {
+            player.isOnline = false;
+            io.to(currentRoomCode).emit("game_log", {
+              text: `${player.name} disconnected.`,
+              type: "disconnect",
+            });
+            broadcastRoomState(currentRoomCode, io);
+          }
+        }
+      }
+      
+      // Disconnect Dots
+      if (currentDotsRoomCode && currentDotsPlayerId) {
+        const room = dotsRooms[currentDotsRoomCode];
+        if (room) {
+          const player = room.players.find((p) => p.id === currentDotsPlayerId);
+          if (player) {
+            player.isOnline = false;
+            broadcastDotsRoomState(currentDotsRoomCode, io);
+          }
+        }
       }
     });
   });

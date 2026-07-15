@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 interface MainMenuProps {
   settings: PlatformSettings;
   stats: GameStats;
-  onSelectGame: (game: 'bingo-classic' | 'bingo-custom' | 'dots-and-boxes') => void;
+  onSelectGame: (game: 'bingo-classic' | 'bingo-custom' | 'dots-and-boxes-local' | 'dots-and-boxes-online') => void;
   onToggleTheme: () => void;
   onToggleSound: () => void;
   onOpenSettings: () => void;
@@ -207,13 +207,20 @@ export default function MainMenu({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3.5 mt-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-auto">
             <button
-              onClick={() => { playClickSound(); onSelectGame('dots-and-boxes'); }}
+              onClick={() => { playClickSound(); onSelectGame('dots-and-boxes-local'); }}
               className="py-3.5 px-4 bg-violet-500 hover:bg-violet-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-violet-500/15 active:scale-[0.98] transition-all text-sm"
             >
-              <Play className="w-4 h-4" />
-              Play Dots & Boxes
+              <Cpu className="w-4 h-4" />
+              Custom / Bot Play
+            </button>
+            <button
+              onClick={() => { playClickSound(); onSelectGame('dots-and-boxes-online'); }}
+              className="py-3.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all text-sm border border-slate-200/50 dark:border-slate-700"
+            >
+              <Users className="w-4 h-4" />
+              Online Multi Room
             </button>
           </div>
         </motion.div>

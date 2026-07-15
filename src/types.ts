@@ -21,6 +21,28 @@ export interface Room {
   isBotGame?: boolean;     // True if playing against PC
 }
 
+export interface DotsPlayer {
+  id: string;
+  socketId: string;
+  name: string;
+  isOnline: boolean;
+  score: number;
+}
+
+export type DotsGameState = 'WAITING' | 'PLAYING' | 'FINISHED';
+
+export interface DotsRoom {
+  code: string;
+  players: DotsPlayer[];
+  gameState: DotsGameState;
+  lines: Array<{r: number, c: number, type: 'h'|'v', owner: 'player1'|'player2'}>;
+  boxes: Array<{r: number, c: number, owner: 'player1'|'player2'}>;
+  turnIndex: number; // 0 for player1, 1 for player2
+  winner: string | 'draw' | null;
+  rows: number;
+  cols: number;
+}
+
 export interface ClientRoomState extends Omit<Room, 'players'> {
   players: Omit<Player, 'board'> & { board?: number[][] }; // other players' boards may be omitted
   myBoard: number[][];                                     // client's own board

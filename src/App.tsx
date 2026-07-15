@@ -12,14 +12,16 @@ import GameSetupModal from "./components/GameSetupModal";
 import SettingsModal from "./components/SettingsModal";
 import StatisticsModal from "./components/StatisticsModal";
 import DotsAndBoxes from "./components/DotsAndBoxes";
+import DotsAndBoxesOnline from "./components/DotsAndBoxesOnline";
 import CustomBingo from "./components/CustomBingo";
 
-import { Player, Room, GameEvent, PlatformSettings, GameStats, BingoSetup, DotsSetup } from "./types";
+import { Player, Room, GameEvent, PlatformSettings, GameStats, BingoSetup, DotsSetup, DotsRoom } from "./types";
 import { playClickSound } from "./utils/audio";
 
 export default function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
+  const [dotsRoom, setDotsRoom] = useState<DotsRoom | null>(null);
   const [myBoard, setMyBoard] = useState<number[][]>([]);
   const [logs, setLogs] = useState<GameEvent[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export default function App() {
   const activeRoomCodeRef = useRef<string | null>(null);
 
   // Platform State Managers
-  const [gameMode, setGameMode] = useState<'menu' | 'bingo-classic' | 'bingo-custom' | 'dots-and-boxes'>('menu');
+  const [gameMode, setGameMode] = useState<'menu' | 'bingo-classic' | 'bingo-custom' | 'dots-and-boxes-local' | 'dots-and-boxes-online'>('menu');
   const [bingoSetup, setBingoSetup] = useState<BingoSetup | null>(null);
   const [dotsSetup, setDotsSetup] = useState<DotsSetup | null>(null);
 
@@ -163,6 +165,11 @@ export default function App() {
       }
     });
 
+    socketInstance.on("dots_room_state", (updatedDotsRoom: DotsRoom) => {
+      setDotsRoom(updatedDotsRoom);
+      activeRoomCodeRef.current = updatedDotsRoom.code;
+    });
+
     socketInstance.on("game_log", (logItem: { text: string; type: any }) => {
       const event: GameEvent = {
         type: logItem.type as any,
@@ -233,6 +240,37 @@ export default function App() {
     setGameMode('menu');
   };
 
+  const handleCreateDotsRoom = (name: string) => {
+    if (!socket) return;
+    setPlayerName(name);
+    localStorage.setItem("bingo_player_name", name);
+    socket.emit("join_dots_room", { roomCode: "", name, playerId, rows: 5, cols: 5 }); // default size for online
+  };
+
+  const handleJoinDotsRoom = (roomCode: string, name: string) => {
+    if (!socket) return;
+    setPlayerName(name);
+    localStorage.setItem("bingo_player_name", name);
+    socket.emit("join_dots_room", { roomCode, name, playerId });
+  };
+
+  const handleSelectDotsLine = (r: number, c: number, type: 'h'|'v') => {
+    if (!socket) return;
+    socket.emit("submit_dots_line", { r, c, type });
+  };
+
+  const handleRestartDotsRoom = () => {
+    if (!socket) return;
+    socket.emit("restart_dots_room");
+  };
+
+  const handleLeaveDotsRoom = () => {
+    if (!socket) return;
+    socket.emit("leave_dots_room");
+    setDotsRoom(null);
+    activeRoomCodeRef.current = null;
+    setGameMode('menu');
+  };
   const recordCustomBingoGame = (winnerId: 'player1' | 'player2') => {
     setStats((prev) => ({
       ...prev,
@@ -307,9 +345,11 @@ export default function App() {
                   } else if (selected === 'bingo-custom') {
                     setSetupType('bingo');
                     setIsSetupOpen(true);
-                  } else if (selected === 'dots-and-boxes') {
+                  } else if (selected === 'dots-and-boxes-local') {
                     setSetupType('dots');
                     setIsSetupOpen(true);
+                  } else if (selected === 'dots-and-boxes-online') {
+                    setGameMode('dots-and-boxes-online');
                   }
                 }}
                 onToggleTheme={() => {
@@ -395,7 +435,7 @@ export default function App() {
                 onRecordGame={recordCustomBingoGame}
               />
             </motion.div>
-          ) : gameMode === 'dots-and-boxes' && dotsSetup ? (
+          ) : gameMode === 'dots-and-boxes-local' && dotsSetup ? (
             <motion.div
               key="dots_screen"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -410,6 +450,42 @@ export default function App() {
                 onRecordGame={recordDotsGame}
               />
             </motion.div>
+          ) : gameMode === 'dots-and-boxes-online' ? (
+            !dotsRoom ? (
+              <motion.div
+                key="lobby_dots_screen"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="w-full flex justify-center"
+              >
+                <Lobby
+                  defaultName={playerName}
+                  onJoin={handleJoinDotsRoom}
+                  onCreate={handleCreateDotsRoom}
+                  onBackToMenu={() => setGameMode('menu')}
+                  gameType="dots"
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="dots_online_screen"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                className="w-full"
+              >
+                <DotsAndBoxesOnline
+                  room={dotsRoom}
+                  myPlayerId={playerId}
+                  settings={settings}
+                  onSelectLine={handleSelectDotsLine}
+                  onRestart={handleRestartDotsRoom}
+                  onLeave={handleLeaveDotsRoom}
+                />
+              </motion.div>
+            )
           ) : null}
         </AnimatePresence>
       </main>
@@ -430,7 +506,7 @@ export default function App() {
         }}
         onStartDots={(setup) => {
           setDotsSetup(setup);
-          setGameMode('dots-and-boxes');
+          setGameMode('dots-and-boxes-local');
         }}
       />
 
